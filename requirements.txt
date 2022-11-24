@@ -14,3 +14,6 @@ webdataset==0.2.5
 open-clip-torch==2.7.0
 gradio==3.11
 -e .
+# todo: remove the below deps
+-e git+https://github.com/CompVis/taming-transformers.git@master#egg=taming-transformers
+-e git+https://github.com/openai/CLIP.git@main#egg=clip
