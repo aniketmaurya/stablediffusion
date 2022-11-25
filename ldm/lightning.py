@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 
