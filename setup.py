@@ -11,7 +11,7 @@ with open(_PATH_REQUIRE) as fp:
 
 setup(
     name='stable-diffusion',
-    version='0.0.5',
+    version='0.0.6',
     description='',
     packages=find_packages(),
     install_requires=requirements,
