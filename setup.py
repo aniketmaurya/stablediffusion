@@ -15,4 +15,5 @@ setup(
     description='',
     packages=find_packages(include=["ldm", "ldm.*"]),
     install_requires=requirements,
+    include_package_data=True,
 )
