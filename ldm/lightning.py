@@ -3,7 +3,7 @@ from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 
 from omegaconf import OmegaConf
-from pytorch_lightning import LightningModule
+import lightning as L
 import torch
 from torch.utils.data import Dataset
 import numpy as np
@@ -22,7 +22,7 @@ class PromptDataset(Dataset):
         return self.prompts[i]
 
 
-class LightningStableDiffusion(LightningModule):
+class LightningStableDiffusion(L.LightningModule):
     def __init__(
         self,
         config_path: str,
