@@ -9,11 +9,15 @@ _PATH_REQUIRE = os.path.join(_PATH_ROOT, "requirements.txt")
 with open(_PATH_REQUIRE) as fp:
     requirements = list(map(str, parse_requirements(fp.readline())))
 
+packages = find_packages()
+
+print(f"Found: {packages}")
+
 setup(
     name='stable-diffusion',
     version='0.0.1',
     description='',
-    packages=find_packages(include=["ldm", "ldm.*"]),
+    packages=packages,
     install_requires=requirements,
     include_package_data=True,
 )
