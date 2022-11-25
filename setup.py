@@ -7,7 +7,7 @@ _PATH_REQUIRE = os.path.join(_PATH_ROOT, "requirements.txt")
 
 # load requirements
 with open(_PATH_REQUIRE) as fp:
-    requirements = list(map(str, parse_requirements(fp.readline())))
+    requirements = list(map(str, parse_requirements(fp.readlines())))
 
 setup(
     name='stable-diffusion',
