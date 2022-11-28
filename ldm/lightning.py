@@ -46,6 +46,8 @@ class LightningStableDiffusion(L.LightningModule):
         self.initial_size = int(size / 8)
         self.steps = 50
 
+        self.to(device)
+
     @torch.inference_mode()
     def predict_step(self, prompts: List[str], batch_idx: int):
         batch_size = len(prompts)
