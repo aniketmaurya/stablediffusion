@@ -28,6 +28,7 @@ class LightningStableDiffusion(L.LightningModule):
         config_path: str,
         checkpoint_path: str,
         device: torch.device,
+        size: int = 512,
     ):
         super().__init__()
 
@@ -42,6 +43,9 @@ class LightningStableDiffusion(L.LightningModule):
 
         self.sampler = DDIMSampler(self.model)
 
+        self.initial_size = int(size / 8)
+        self.steps = 50
+
     @torch.inference_mode()
     def predict_step(self, prompts: List[str], batch_idx: int):
         batch_size = len(prompts)
@@ -49,9 +53,9 @@ class LightningStableDiffusion(L.LightningModule):
         with self.model.ema_scope():
             uc = self.model.get_learned_conditioning(batch_size * [""])
             c = self.model.get_learned_conditioning(prompts)
-            shape = [4, 64, 64]
+            shape = [4, self.initial_size, self.initial_size]
             samples_ddim, _ = self.sampler.sample(
-                S=25,  # Number of inference steps, more steps -> higher quality
+                S=self.steps,  # Number of inference steps, more steps -> higher quality
                 conditioning=c,
                 batch_size=batch_size,
                 shape=shape,
