@@ -3,8 +3,8 @@ opencv-python
 pudb==2019.2
 imageio==2.9.0
 imageio-ffmpeg==0.4.2
-pytorch-lightning==1.4.2
-torchmetrics==0.6
+# pytorch-lightning==1.4.2  # use latest
+# torchmetrics==0.6
 omegaconf==2.1.1
 test-tube>=0.7.5
 streamlit>=0.73.1
@@ -14,3 +14,6 @@ webdataset==0.2.5
 open-clip-torch==2.7.0
 gradio==3.11
 -e .
+# todo: remove the below deps
+-e git+https://github.com/CompVis/taming-transformers.git@master#egg=taming-transformers
+-e git+https://github.com/openai/CLIP.git@main#egg=clip
