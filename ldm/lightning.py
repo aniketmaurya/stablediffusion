@@ -93,8 +93,6 @@ class LightningStableImg2ImgDiffusion(L.LightningModule):
 
         config = OmegaConf.load(config_path)
         pl_sd = torch.load(checkpoint_path, map_location="cpu")
-        if "global_step" in pl_sd:
-            print(f"Global Step: {pl_sd['global_step']}")
         sd = pl_sd["state_dict"]
         self.model = instantiate_from_config(config.model).to(device)
         self.model.load_state_dict(sd, strict=False)
