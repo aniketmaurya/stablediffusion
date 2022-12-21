@@ -110,9 +110,7 @@ class LightningStableImg2ImgDiffusion(L.LightningModule):
         init_image = base64.b64decode(image)
         buffer = BytesIO(init_image)
         init_image = Image.open(buffer, mode="r").convert("RGB")
-        w, h = init_image.size
-        w, h = map(lambda x: x - x % 32, (w, h))  # resize to integer multiple of 32
-        image = init_image.resize((w, h), resample=Image.LANCZOS)
+        image = init_image.resize((512, 512), resample=Image.LANCZOS)
         image = np.array(image).astype(np.float32) / 255.0
         image = image[None].transpose(0, 3, 1, 2)
         image = torch.from_numpy(image)
