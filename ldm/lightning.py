@@ -8,8 +8,8 @@ import torch
 from io import BytesIO
 from torch.utils.data import Dataset
 import numpy as np
+from time import time
 from PIL import Image
-from einops import rearrange, repeat
 from io import BytesIO
 from contextlib import nullcontext
 from torch import autocast
@@ -81,6 +81,70 @@ class LightningStableDiffusion(L.LightningModule):
         return pil_results
 
 
+class ReplayCudaGraphUnet(torch.nn.Module):
+    def __init__(self, unet, enable_cuda_graph=True):
+        super().__init__()
+        self.unet = unet
+        # SD pipeline accesses this attribute
+        self.device = self.unet.device
+        self.dtype = self.unet.dtype
+        self.fwd_count = 0
+        self.unet.requires_grad_(requires_grad=False)
+        self.unet.to(memory_format=torch.channels_last)
+        self.cuda_graph_created = False
+        self.enable_cuda_graph = enable_cuda_graph
+
+    def __getattr__(self, key):
+        if hasattr(self._modules["unet"], key) and key not in self.__dict__:
+            return getattr(self._modules["unet"], key)
+        if key == "unet":
+            return self._modules["unet"]
+        return object.__getattribute__(self, key)
+
+    def _graph_replay(self, *inputs, **kwargs):
+        for i in range(len(inputs)):
+            if torch.is_tensor(inputs[i]):
+                self.static_inputs[i].copy_(inputs[i])
+        for k in kwargs:
+            if torch.is_tensor(kwargs[k]):
+                self.static_kwargs[k].copy_(kwargs[k])
+        self._cuda_graphs.replay()
+        return self.static_output
+
+    def forward(self, *inputs, **kwargs):
+        if self.enable_cuda_graph:
+            if self.cuda_graph_created:
+                outputs = self._graph_replay(*inputs, **kwargs)
+            else:
+                self._create_cuda_graph(*inputs, **kwargs)
+                outputs = self._graph_replay(*inputs, **kwargs)
+            return outputs
+        else:
+            return self._forward(*inputs, **kwargs)
+
+    def _create_cuda_graph(self, *inputs, **kwargs):
+        # warmup to create the workspace and cublas handle
+        cuda_stream = torch.cuda.Stream()
+        cuda_stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(cuda_stream):
+            for i in range(3):
+                ret = self._forward(*inputs, **kwargs)
+        torch.cuda.current_stream().wait_stream(cuda_stream)
+
+        # create cuda_graph and assign static_inputs and static_outputs
+        self._cuda_graphs = torch.cuda.CUDAGraph()
+        self.static_inputs = inputs
+        self.static_kwargs = kwargs
+
+        with torch.cuda.graph(self._cuda_graphs):
+            self.static_output = self._forward(*self.static_inputs, **self.static_kwargs)
+
+        self.cuda_graph_created = True
+
+    def _forward(self, sample, timestamp, c_crossattn):
+        return self.unet(sample, timestamp, c_crossattn=c_crossattn)
+
+
 class LightningStableImg2ImgDiffusion(L.LightningModule):
     def __init__(
         self,
@@ -96,6 +160,10 @@ class LightningStableImg2ImgDiffusion(L.LightningModule):
         sd = pl_sd["state_dict"]
         self.model = instantiate_from_config(config.model).to(device)
         self.model.load_state_dict(sd, strict=False)
+        
+        # Update Unet for inference
+        # Currently waiting for https://github.com/pytorch/pytorch/issues/91302
+        # self.model.model = ReplayCudaGraphUnet(self.model.model)
 
         self.to(device)
 
@@ -116,7 +184,7 @@ class LightningStableImg2ImgDiffusion(L.LightningModule):
         image = torch.from_numpy(image)
         return 2. * image - 1.
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def predict_step(
         self,
         inputs: Tuple[Union[str, List[str]], Union[str, List[str]]],
@@ -125,6 +193,8 @@ class LightningStableImg2ImgDiffusion(L.LightningModule):
         strength=0.75, 
         scale = 5.0
     ):
+        t0 = time()
+
         prompt, init_image = inputs
 
         if isinstance(init_image, str):
@@ -169,4 +239,6 @@ class LightningStableImg2ImgDiffusion(L.LightningModule):
 
                 x_samples_ddim = (255.0 * x_samples_ddim).astype(np.uint8)
                 pil_results = [Image.fromarray(x_sample) for x_sample in x_samples_ddim]
+
+        print(f"Generated {batch_size} images in {time() - t0}")
         return pil_results
