@@ -153,6 +153,10 @@ def main():
     )
     init_image: str = load_img(opt.init_img)
 
+    # With Batching
+    # images = model.predict_step(([opt.prompt, opt.prompt], [init_image, init_image]), 0)
+
+    # Without Batching
     images = model.predict_step((opt.prompt, init_image), 0)
 
     grid_count = len(os.listdir(opt.outdir)) - 1

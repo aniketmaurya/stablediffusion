@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple, Union
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 import base64
@@ -119,17 +119,25 @@ class LightningStableImg2ImgDiffusion(L.LightningModule):
     @torch.no_grad()
     def predict_step(
         self,
-        inputs: str,
+        inputs: Tuple[Union[str, List[str]], Union[str, List[str]]],
         batch_idx: int,
-        batch_size: int = 1,
         precision=16,
         strength=0.75, 
         scale = 5.0
     ):
         prompt, init_image = inputs
 
-        init_image = self.serialize_image(init_image).to(self._device)
-        init_image = repeat(init_image, '1 ... -> b ...', b=batch_size)
+        if isinstance(init_image, str):
+            init_image = [init_image]
+
+        if isinstance(prompt, str):
+            prompt = [prompt]
+
+        assert len(prompt) == len(init_image)
+
+        batch_size = len(init_image)
+
+        init_image = torch.cat([self.serialize_image(img).to(self._device) for img in init_image], dim=0)
         init_latent = self.model.get_first_stage_encoding(self.model.encode_first_stage(init_image))
 
         self.sampler.make_schedule(ddim_num_steps=self.steps, ddim_eta=0.0, verbose=False)
