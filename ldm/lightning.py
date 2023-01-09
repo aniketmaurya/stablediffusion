@@ -83,7 +83,7 @@ class LightningStableDiffusion(L.LightningModule):
 
         precision_scope = autocast if precision == 16 else nullcontext
         inference = torch.inference_mode if torch.cuda.is_available() else torch.no_grad
-        with inference:
+        with inference():
             with precision_scope("cuda"):
                 with self.model.ema_scope():
                     uc = self.model.get_learned_conditioning(batch_size * [""])
