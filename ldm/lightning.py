@@ -38,7 +38,7 @@ _SAMPLERS = {
 _STEPS = {
     "ddim": 50,
     "plms": 50,
-    "dpm": 30
+    "dpm": 50
 }
 
 

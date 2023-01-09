@@ -16,7 +16,6 @@ from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
 from ldm.models.diffusion.dpm_solver import DPMSolverSampler
-from ldm.bitsandbytes_replace import bitsandbytes_injection
 
 torch.set_grad_enabled(False)
 
@@ -171,11 +170,6 @@ def parse_args():
         default=1,
         help="repeat each prompt in file this often",
     )
-    parser.add_argument(
-        "--use_int8",
-        action='store_true',
-        help="Whether to convert linear layers to int8",
-    )
     opt = parser.parse_args()
     return opt
 
@@ -188,12 +182,6 @@ def main(opt):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model = model.to(device)
-
-    if opt.use_int8:
-        # Batch 1
-        # Before: Max Memory 7338.373046875 MB
-        # After: Max Memory 5853.736328125 MB
-        bitsandbytes_injection(model)
 
     if opt.plms:
         sampler = PLMSSampler(model)
