@@ -11,12 +11,12 @@ from torchvision.utils import make_grid
 from pytorch_lightning import seed_everything
 from torch import autocast
 from contextlib import nullcontext
-from imwatermark import WatermarkEncoder
 
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
 from ldm.models.diffusion.dpm_solver import DPMSolverSampler
+from ldm.bitsandbytes_replace import bitsandbytes_injection
 
 torch.set_grad_enabled(False)
 
@@ -51,7 +51,7 @@ def parse_args():
         "--prompt",
         type=str,
         nargs="?",
-        default="a professional photograph of an astronaut riding a triceratops",
+        default="astronaut riding a horse, digital art, epic lighting, highly-detailed masterpiece trending HQ",
         help="the prompt to render"
     )
     parser.add_argument(
@@ -91,7 +91,7 @@ def parse_args():
     parser.add_argument(
         "--n_iter",
         type=int,
-        default=3,
+        default=5,
         help="sample this often",
     )
     parser.add_argument(
@@ -121,7 +121,7 @@ def parse_args():
     parser.add_argument(
         "--n_samples",
         type=int,
-        default=3,
+        default=1,
         help="how many samples to produce for each given prompt. A.k.a batch size",
     )
     parser.add_argument(
@@ -171,16 +171,13 @@ def parse_args():
         default=1,
         help="repeat each prompt in file this often",
     )
+    parser.add_argument(
+        "--use_int8",
+        action='store_true',
+        help="Whether to convert linear layers to int8",
+    )
     opt = parser.parse_args()
     return opt
-
-
-def put_watermark(img, wm_encoder=None):
-    if wm_encoder is not None:
-        img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-        img = wm_encoder.encode(img, 'dwtDct')
-        img = Image.fromarray(img[:, :, ::-1])
-    return img
 
 
 def main(opt):
@@ -192,6 +189,12 @@ def main(opt):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model = model.to(device)
 
+    if opt.use_int8:
+        # Batch 1
+        # Before: Max Memory 7338.373046875 MB
+        # After: Max Memory 5853.736328125 MB
+        bitsandbytes_injection(model)
+
     if opt.plms:
         sampler = PLMSSampler(model)
     elif opt.dpm:
@@ -201,11 +204,6 @@ def main(opt):
 
     os.makedirs(opt.outdir, exist_ok=True)
     outpath = opt.outdir
-
-    print("Creating invisible watermark encoder (see https://github.com/ShieldMnt/invisible-watermark)...")
-    wm = "SDV2"
-    wm_encoder = WatermarkEncoder()
-    wm_encoder.set_watermark('bytes', wm.encode('utf-8'))
 
     batch_size = opt.n_samples
     n_rows = opt.n_rows if opt.n_rows > 0 else batch_size
@@ -231,6 +229,11 @@ def main(opt):
     if opt.fixed_code:
         start_code = torch.randn([opt.n_samples, opt.C, opt.H // opt.f, opt.W // opt.f], device=device)
 
+    torch.cuda.reset_peak_memory_stats()
+    torch.cuda.synchronize()
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    start_event.record()
     precision_scope = autocast if opt.precision == "autocast" else nullcontext
     with torch.no_grad(), \
         precision_scope("cuda"), \
@@ -261,7 +264,6 @@ def main(opt):
                     for x_sample in x_samples:
                         x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                         img = Image.fromarray(x_sample.astype(np.uint8))
-                        img = put_watermark(img, wm_encoder)
                         img.save(os.path.join(sample_path, f"{base_count:05}.png"))
                         base_count += 1
                         sample_count += 1
@@ -276,9 +278,14 @@ def main(opt):
             # to image
             grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
             grid = Image.fromarray(grid.astype(np.uint8))
-            grid = put_watermark(grid, wm_encoder)
             grid.save(os.path.join(outpath, f'grid-{grid_count:04}.png'))
             grid_count += 1
+    
+    end_event.record()
+
+    max_memory = torch.cuda.max_memory_allocated()/2**20
+    print(f"Max Memory {max_memory} MB")
+    print(start_event.elapsed_time(end_event) / (opt.n_iter))
 
     print(f"Your samples are ready and waiting for you here: \n{outpath} \n"
           f" \nEnjoy.")
