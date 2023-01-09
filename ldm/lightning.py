@@ -78,33 +78,34 @@ class LightningStableDiffusion(L.LightningModule):
 
         self.to(device, dtype=torch.float16 if fp16 else torch.float32)
 
-    @torch.inference_mode()
     def predict_step(self, prompts: List[str], batch_idx: int, precision=16):
         batch_size = len(prompts)
 
         precision_scope = autocast if precision == 16 else nullcontext
-        with precision_scope("cuda"):
-            with self.model.ema_scope():
-                uc = self.model.get_learned_conditioning(batch_size * [""])
-                c = self.model.get_learned_conditioning(prompts)
-                shape = [4, self.initial_size, self.initial_size]
-                samples_ddim, _ = self.sampler.sample(
-                    S=self.steps,  # Number of inference steps, more steps -> higher quality
-                    conditioning=c,
-                    batch_size=batch_size,
-                    shape=shape,
-                    verbose=False,
-                    unconditional_guidance_scale=7.5,
-                    unconditional_conditioning=uc,
-                    eta=0.0,
-                )
+        inference = torch.inference_mode if torch.cuda.is_available() else torch.no_grad
+        with inference:
+            with precision_scope("cuda"):
+                with self.model.ema_scope():
+                    uc = self.model.get_learned_conditioning(batch_size * [""])
+                    c = self.model.get_learned_conditioning(prompts)
+                    shape = [4, self.initial_size, self.initial_size]
+                    samples_ddim, _ = self.sampler.sample(
+                        S=self.steps,  # Number of inference steps, more steps -> higher quality
+                        conditioning=c,
+                        batch_size=batch_size,
+                        shape=shape,
+                        verbose=False,
+                        unconditional_guidance_scale=7.5,
+                        unconditional_conditioning=uc,
+                        eta=0.0,
+                    )
 
-                x_samples_ddim = self.model.decode_first_stage(samples_ddim)
-                x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
-                x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).numpy()
+                    x_samples_ddim = self.model.decode_first_stage(samples_ddim)
+                    x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
+                    x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).numpy()
 
-                x_samples_ddim = (255.0 * x_samples_ddim).astype(np.uint8)
-                pil_results = [Image.fromarray(x_sample) for x_sample in x_samples_ddim]
+                    x_samples_ddim = (255.0 * x_samples_ddim).astype(np.uint8)
+                    pil_results = [Image.fromarray(x_sample) for x_sample in x_samples_ddim]
         return pil_results
 
 
