@@ -77,6 +77,7 @@ def zero_module(module):
     """
     Zero out the parameters of a module and return it.
     """
+    return module
     for p in module.parameters():
         p.detach().zero_()
     return module
@@ -313,20 +314,21 @@ class SpatialTransformer(nn.Module):
         # note: if no context is given, cross-attention defaults to self-attention
         if not isinstance(context, list):
             context = [context]
+        x = x.contiguous()
         b, c, h, w = x.shape
         x_in = x
         x = self.norm(x)
         if not self.use_linear:
             x = self.proj_in(x)
-        x = rearrange(x, 'b c h w -> b (h w) c').contiguous()
+        x = x.permute(0, 2, 3, 1).reshape(b, h * w, c)
         if self.use_linear:
             x = self.proj_in(x)
         for i, block in enumerate(self.transformer_blocks):
             x = block(x, context=context[i])
         if self.use_linear:
             x = self.proj_out(x)
-        x = rearrange(x, 'b (h w) c -> b c h w', h=h, w=w).contiguous()
+        x = x.reshape(b, h, w, c).permute(0, 3, 1, 2).contiguous()
         if not self.use_linear:
             x = self.proj_out(x)
-        return x + x_in
+        return x_in + x
 

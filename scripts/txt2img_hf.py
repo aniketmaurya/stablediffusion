@@ -5,6 +5,9 @@ import deepspeed
 import argparse
 from pytorch_lightning import seed_everything
 from diffusers.schedulers import DDIMScheduler
+from diffusers.models.attention import AttentionBlock
+from torch.profiler import profile, record_function, ProfilerActivity
+from deepspeed.ops.transformer.inference.diffusers_transformer_block import DeepSpeedDiffusersTransformerBlock
 
 def benchmark_fn(iters: int, warm_up_iters: int, function, *args, **kwargs) -> float:
     """
@@ -90,13 +93,28 @@ parser.add_argument(
     help="dir to write results to",
     default="./outputs",
 )
+parser.add_argument(
+    "--profifer_dir",
+    type=str,
+    help="dir to write profiles to",
+    default="./profiles",
+)
 opt = parser.parse_args()
 os.makedirs(opt.outdir, exist_ok=True)
+os.makedirs(opt.profifer_dir, exist_ok=True)
 seed_everything(opt.seed)
 
-t, results = benchmark_fn(1, 3, pipe, prompt=[opt.prompt])
-print(t)
+# warm up
+_ = benchmark_fn(1, 5, pipe, prompt=[opt.prompt] * 1)
 
+with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+    with record_function("model_inference"):
+        for batch_size in [1]:
+            t, results = benchmark_fn(1, 0, pipe, prompt=[opt.prompt] * batch_size)
+            print(f"Average time {t} secs on batch size {batch_size}.")
+
+prof.export_chrome_trace(os.path.join(opt.profifer_dir, "hf2.pt.trace.json.gz"))
+    
 grid_count = len(os.listdir(opt.outdir)) - 1
 
 for result in results:

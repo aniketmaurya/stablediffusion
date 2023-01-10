@@ -2,9 +2,9 @@ import argparse
 import os
 from pytorch_lightning import seed_everything
 from ldm.lightning import LightningStableDiffusion
-from torch.profiler import profile, record_function, ProfilerActivity
-from lightning.pytorch.profiler.pytorch import RegisterRecordFunction
-
+from deepspeed.inference import engine
+import deepspeed
+from ldm.deepspeed_replace import deepspeed_generic_injection
 
 def benchmark_fn(iters: int, warm_up_iters: int, function, *args, **kwargs) -> float:
     """
@@ -144,25 +144,12 @@ def parse_args():
         default=42,
         help="the seed (for reproducible sampling)",
     )
-    parser.add_argument(
-        "--profiler_dir",
-        type=str,
-        nargs="?",
-        help="dir to write profiles to",
-        default="./profiles"
-    )
-    parser.add_argument(
-        "--profile",
-        action='store_true',
-        help="use profiling",
-    )
     opt = parser.parse_args()
     return opt
 
 
 def main(opt):
     opt = parse_args()
-    os.makedirs(opt.profiler_dir, exist_ok=True)
     os.makedirs(opt.outdir, exist_ok=True)
     seed_everything(opt.seed)
 
@@ -171,33 +158,17 @@ def main(opt):
         checkpoint_path=opt.ckpt,
         device="cuda",
         sampler=opt.sampler,
-        use_deepspeed=True,
-        enable_cuda_graph=True,
+        use_deepspeed=False
     )
 
-    if opt.profile:
+    engine.generic_injection = deepspeed_generic_injection
+    import torch
+    model = deepspeed.init_inference(model, dtype=torch.float16)
 
-        # warm up
-        _ = benchmark_fn(1, 5, model.predict_step, prompt=[opt.prompt] * 1)
-
-        seed_everything(opt.seed)
-
-        with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-            with record_function("model_inference"):
-                with RegisterRecordFunction(model):
-                    for batch_size in [1]:
-                        seed_everything(opt.seed)
-                        t, max_memory, images = benchmark_fn(1, 0, model.predict_step, prompt=[opt.prompt] * batch_size)
-                        print(f"Average time {t} secs on batch size {batch_size}.")
-                        print(f"Max GPU Memory cost is {max_memory} MB.")
-
-        prof.export_chrome_trace(os.path.join(opt.profiler_dir, "ldm.pt.trace.json.gz"))
-
-    else:
-        for batch_size in [1]:
-            t, max_memory, images = benchmark_fn(10, 5, model.predict_step, prompt=[opt.prompt] * batch_size)
-            print(f"Average time {t} secs on batch size {batch_size}.")
-            print(f"Max GPU Memory cost is {max_memory} MB.")
+    for batch_size in [1]:
+        t, max_memory, images = benchmark_fn(10, 5, model, prompts=[opt.prompt] * batch_size, batch_idx=0)
+        print(f"Average time {t} secs on batch size {batch_size}.")
+        print(f"Max GPU Memory cost is {max_memory} MB.")
 
     grid_count = len(os.listdir(opt.outdir)) - 1
 

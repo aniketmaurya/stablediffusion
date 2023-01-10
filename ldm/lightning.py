@@ -15,7 +15,7 @@ from PIL import Image
 from io import BytesIO
 from contextlib import nullcontext
 from torch import autocast
-from ldm.deepspeed_replace import deepspeed_injection, ReplayCudaGraphUnet
+from ldm.deepspeed_replace import generic_injection, ReplayCudaGraphUnet
 
 
 class PromptDataset(Dataset):
@@ -49,15 +49,16 @@ class LightningStableDiffusion(L.LightningModule):
         checkpoint_path: str,
         device: torch.device,
         size: int = 512,
-        fp16: bool = True,
-        sampler: str = "dpm",
+        use_fp16: bool = True,
+        sampler: str = "ddim",
         steps: Optional[int] = None,
         use_deepspeed: bool = True,
+        enable_cuda_graph: bool = True,
     ):
         super().__init__()
 
         config = OmegaConf.load(f"{config_path}")
-        config.model.params.unet_config["params"]["use_fp16"] = False
+        config.model.params.unet_config["params"]["use_fp16"] = use_fp16
         config.model.params.cond_stage_config["params"] = {"device": device}
 
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
@@ -68,7 +69,7 @@ class LightningStableDiffusion(L.LightningModule):
         self.to(dtype=torch.float16)
 
         if use_deepspeed:
-            deepspeed_injection(self.model, fp16=fp16)
+            generic_injection(self.model, fp16=use_fp16, enable_cuda_graph=enable_cuda_graph)
 
         # Replace with 
         self.sampler = _SAMPLERS[sampler](self.model)
@@ -76,10 +77,13 @@ class LightningStableDiffusion(L.LightningModule):
         self.initial_size = int(size / 8)
         self.steps = steps or _STEPS[sampler]
 
-        self.to(device, dtype=torch.float16 if fp16 else torch.float32)
+        self.to(device, dtype=torch.float16 if use_fp16 else torch.float32)
 
-    def predict_step(self, prompts: List[str], batch_idx: int, precision=16):
-        batch_size = len(prompts)
+    def forward(self, prompt: List[str], batch_idx: int = 0, precision=16):
+        return self.predict_step(prompt, batch_idx, precision=precision)
+
+    def predict_step(self, prompt: List[str], batch_idx: int = 0, precision=16):
+        batch_size = len(prompt)
 
         precision_scope = autocast if precision == 16 else nullcontext
         inference = torch.inference_mode if torch.cuda.is_available() else torch.no_grad
@@ -87,7 +91,7 @@ class LightningStableDiffusion(L.LightningModule):
             with precision_scope("cuda"):
                 with self.model.ema_scope():
                     uc = self.model.get_learned_conditioning(batch_size * [""])
-                    c = self.model.get_learned_conditioning(prompts)
+                    c = self.model.get_learned_conditioning(prompt)
                     shape = [4, self.initial_size, self.initial_size]
                     samples_ddim, _ = self.sampler.sample(
                         S=self.steps,  # Number of inference steps, more steps -> higher quality
@@ -186,7 +190,7 @@ class LightningStableImg2ImgDiffusion(L.LightningModule):
             c = self.model.get_learned_conditioning(prompt)
 
             # encode (scaled latent)
-            z_enc = self.sampler.stochastic_encode(init_latent, torch.tensor([t_enc]*batch_size).to(self._device))
+            z_enc = self.sampler.stochastic_encode(init_latent, torch.tensor([t_enc]*batch_size, device=self._device))
             # decode it
             samples = self.sampler.decode(
                 z_enc,

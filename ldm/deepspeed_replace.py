@@ -10,6 +10,53 @@ from deepspeed.module_inject.replace_policy import UNetPolicy, DSPolicy
 from ldm.models.diffusion.ddpm import DiffusionWrapper
 from ldm.models.autoencoder import AutoencoderKL
 from ldm.modules.encoders.modules import FrozenCLIPEmbedder
+from deepspeed.model_implementations.diffusers.unet import DSUNet
+from deepspeed.model_implementations.diffusers.vae import DSVAE
+
+
+class DSUNet(DSUNet):
+
+    def __init__(self, unet, enable_cuda_graph=True):
+        torch.nn.Module.__init__(self)
+        self.unet = unet
+        # SD pipeline accesses this attribute
+        self.in_channels = unet.diffusion_model.in_channels
+        self.device = self.unet.device
+        self.dtype = self.unet.diffusion_model.dtype
+        self.fwd_count = 0
+        self.unet.requires_grad_(requires_grad=False)
+        self.unet.to(memory_format=torch.channels_last)
+        self.cuda_graph_created = False
+        self.enable_cuda_graph = enable_cuda_graph
+
+    def __getattr__(self, key):
+        if hasattr(self._modules["unet"], key) and key not in self.__dict__:
+            return getattr(self._modules["unet"], key)
+        if key == "unet":
+            return self._modules["unet"]
+        return object.__getattribute__(self, key)
+
+    def _forward(self, sample, timestamp, c_crossattn):
+        return self.unet(sample, timestamp, c_crossattn=c_crossattn)
+
+class DSVAE(DSVAE):
+
+    def __getattr__(self, key):
+        if hasattr(self._modules["vae"], key) and key not in self.__dict__:
+            return getattr(self._modules["vae"], key)
+        if key == "vae":
+            return self._modules["vae"]
+        return object.__getattribute__(self, key)
+
+    def _decode(self, x):
+        return self.vae.decode(x)
+
+    def _encode(self, x):
+        return self.vae.encode(x)
+
+    def _forward(self, input, sample_posterior=True):
+        return self.vae(input, sample_posterior=sample_posterior)
+
 
 @dataclass
 class CudaGraphRecord:
@@ -165,7 +212,9 @@ class UNetPolicy(DSPolicy):
         return isinstance(module, DiffusionWrapper)
 
     def apply(self, module, enable_cuda_graph=True):
-        return ReplayCudaGraphUnet(module, enable_cuda_graph=enable_cuda_graph)
+        return DSUNet(module, enable_cuda_graph=enable_cuda_graph)
+        # return ReplayCudaGraphUnet(module, enable_cuda_graph=enable_cuda_graph)
+
 
     def attention(self, client_module):
         qw = client_module.to_q.weight
@@ -195,7 +244,8 @@ class VAEPolicy(DSPolicy):
         return isinstance(module,  AutoencoderKL)
 
     def apply(self, module, enable_cuda_graph=True):
-        return ReplayCudaGraphVAE(module, enable_cuda_graph=enable_cuda_graph)
+        return DSVAE(module, enable_cuda_graph=enable_cuda_graph)
+        # return ReplayCudaGraphVAE(module, enable_cuda_graph=enable_cuda_graph)
 
 
 class ClipEncoderPolicy(DSPolicy):
@@ -218,7 +268,7 @@ def _module_match(module):
     return None
 
 # Inspired from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/module_inject/replace_module.py#L201
-def deepspeed_injection(module, fp16=False, enable_cuda_graph=True):
+def generic_injection(module, fp16=True, enable_cuda_graph=True):
 
     def replace_attn(child, policy):
         policy_attn = policy.attention(child)
@@ -284,8 +334,11 @@ def deepspeed_injection(module, fp16=False, enable_cuda_graph=True):
                     setattr(module, name, replaced_module)
 
         _replace_module(sub_module, policy)
-        new_module = policy.apply(sub_module,
-                                    enable_cuda_graph=enable_cuda_graph)
+        new_module = policy.apply(sub_module, enable_cuda_graph=enable_cuda_graph)
         print(f"**** found and replaced {name} w. {type(new_module)}")
         setattr(module, name, new_module)
 
+# Inspired from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/module_inject/replace_module.py#L201
+def deepspeed_generic_injection(module, fp16=False, enable_cuda_graph=True):
+    module = module.model
+    generic_injection(module, fp16=fp16, enable_cuda_graph=enable_cuda_graph)
