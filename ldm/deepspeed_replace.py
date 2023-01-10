@@ -9,7 +9,7 @@ from ldm.modules.attention import CrossAttention, BasicTransformerBlock
 from deepspeed.module_inject.replace_policy import UNetPolicy, DSPolicy
 from ldm.models.diffusion.ddpm import DiffusionWrapper
 from ldm.models.autoencoder import AutoencoderKL
-
+from ldm.modules.encoders.modules import FrozenCLIPEmbedder
 
 @dataclass
 class CudaGraphRecord:
@@ -22,6 +22,21 @@ class CudaGraphRecord:
     enable_cuda_graph: bool = True
 
 
+class CudaGraphBatchRecord(dict):
+
+    def __init__(self, enable_cuda_graph):
+        super().__init__()
+        self.enable_cuda_graph = enable_cuda_graph
+
+    def __getitem__(self, key):
+        if key not in self:
+            self[key] = CudaGraphRecord(enable_cuda_graph=self.enable_cuda_graph)
+        for item, value in self.items():
+            if item == key:
+                return value
+        raise Exception()
+
+
 class CudaGraphInferenceModule(torch.nn.Module):
 
     # Inspired from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/model_implementations/diffusers/vae.py
@@ -31,10 +46,6 @@ class CudaGraphInferenceModule(torch.nn.Module):
     def __init__(self, module, enable_cuda_graph = True):
         super().__init__()
         self.module = module
-        # SD pipeline accesses this attribute
-        self.device = self.module.device
-        self.dtype = self.module.dtype
-        self.fwd_count = 0
         self.module.requires_grad_(requires_grad=False)
         self.module.to(memory_format=torch.channels_last)
         self.cuda_graph_records = {}
@@ -42,7 +53,7 @@ class CudaGraphInferenceModule(torch.nn.Module):
         for method_name in self.inference_methods:
             fn = getattr(self, f"_{method_name}")
             assert fn
-            self.cuda_graph_records[method_name] = CudaGraphRecord(enable_cuda_graph=enable_cuda_graph)
+            self.cuda_graph_records[method_name] = CudaGraphBatchRecord(enable_cuda_graph=enable_cuda_graph)
             setattr(self, method_name, partial(self._apply_fn, fn=fn, graph_record=self.cuda_graph_records[method_name]))
 
     def __getattr__(self, key):
@@ -62,13 +73,17 @@ class CudaGraphInferenceModule(torch.nn.Module):
         graph_record.graph.replay()
         return graph_record.output
 
+    def extract_batch_size(self, *args, **kwargs) -> int:
+        raise NotImplementedError
+
     def _apply_fn(self, *args, fn=None, graph_record=None,  **kwargs):
-        if graph_record.enable_cuda_graph:
-            if graph_record.cuda_graph_created:
-                outputs = self._graph_replay(graph_record, *args, **kwargs)
+        batch_size = self.extract_batch_size(*args, **kwargs)
+        if graph_record[batch_size].enable_cuda_graph:
+            if graph_record[batch_size].cuda_graph_created:
+                outputs = self._graph_replay(graph_record[batch_size], *args, **kwargs)
             else:
-                self._create_cuda_graph(fn, graph_record, *args, **kwargs)
-                outputs = self._graph_replay(graph_record, *args, **kwargs)
+                self._create_cuda_graph(fn, graph_record[batch_size], *args, **kwargs)
+                outputs = self._graph_replay(graph_record[batch_size], *args, **kwargs)
             return outputs
         else:
             return self._forward(*args, **kwargs)
@@ -96,6 +111,9 @@ class CudaGraphInferenceModule(torch.nn.Module):
 
 class ReplayCudaGraphUnet(CudaGraphInferenceModule):
 
+    def extract_batch_size(self, sample, timestamp, c_crossattn) -> int:
+        return sample.shape[0] // 2
+
     def _forward(self, sample, timestamp, c_crossattn):
         return self.module(sample, timestamp, c_crossattn=c_crossattn)
 
@@ -103,6 +121,9 @@ class ReplayCudaGraphUnet(CudaGraphInferenceModule):
 class ReplayCudaGraphVAE(CudaGraphInferenceModule):
 
     inference_methods = ["forward", "encode", "decode"]
+
+    def extract_batch_size(self, input, **__) -> int:
+        return input.shape[0]
 
     def _encode(self, x):
         return self.module.encode(x)
@@ -112,6 +133,30 @@ class ReplayCudaGraphVAE(CudaGraphInferenceModule):
 
     def _forward(self, input, sample_posterior=True):
         return self.module(input, sample_posterior=sample_posterior)
+
+
+class ReplayCudaGraphClipEncoder(CudaGraphInferenceModule):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.module.transformer.text_model._build_causal_attention_mask = self._build_causal_attention_mask
+
+    def _build_causal_attention_mask(self, bsz, seq_len, dtype):
+        mask = torch.empty(bsz,
+                           seq_len,
+                           seq_len,
+                           dtype=dtype,
+                           device=torch.cuda.current_device())
+        mask.fill_(torch.tensor(torch.finfo(dtype).min))
+        mask.triu_(1)
+        mask = mask.unsqueeze(1)
+        return mask
+
+    def extract_batch_size(self, sample, **__) -> int:
+        return sample.shape[0]
+
+    def _forward(self, *inputs, **kwargs):
+        return self.enc(*inputs, **kwargs)
 
 
 class UNetPolicy(DSPolicy):
@@ -153,12 +198,20 @@ class VAEPolicy(DSPolicy):
         return ReplayCudaGraphVAE(module, enable_cuda_graph=enable_cuda_graph)
 
 
-generic_policies = [UNetPolicy, VAEPolicy]
+class ClipEncoderPolicy(DSPolicy):
+
+    def match(self, module):
+        return isinstance(module, FrozenCLIPEmbedder)
+
+    def apply(self, module, enable_cuda_graph=True):
+        return ReplayCudaGraphClipEncoder(module, enable_cuda_graph=enable_cuda_graph)
+
+
+GENERIC_POLICIES = [UNetPolicy, VAEPolicy, ClipEncoderPolicy]
 
 
 def _module_match(module):
-    print(module.__class__)
-    for policy in generic_policies:
+    for policy in GENERIC_POLICIES:
         policy = policy()
         if policy.match(module):
             return policy
@@ -235,3 +288,4 @@ def deepspeed_injection(module, fp16=False, enable_cuda_graph=True):
                                     enable_cuda_graph=enable_cuda_graph)
         print(f"**** found and replaced {name} w. {type(new_module)}")
         setattr(module, name, new_module)
+

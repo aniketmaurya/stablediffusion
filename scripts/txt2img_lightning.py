@@ -157,9 +157,10 @@ def main(opt):
         sampler=opt.sampler,
     )
 
-    t, max_memory, images = benchmark_fn(1, 3, model.predict_step, prompts=[opt.prompt], batch_idx=0)
-    print(f"Average time {t} secs.")
-    print(f"Max GPU Memory cost is {max_memory} MB.")
+    for i in [1, 2, 4]:
+        t, max_memory, images = benchmark_fn(10, 5, model.predict_step, prompts=[opt.prompt] * i, batch_idx=0)
+        print(f"Average time {t} secs on batch size {i}.")
+        print(f"Max GPU Memory cost is {max_memory} MB.")
 
     grid_count = len(os.listdir(opt.outdir)) - 1
 
