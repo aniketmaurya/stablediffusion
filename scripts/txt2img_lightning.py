@@ -36,11 +36,12 @@ def benchmark_fn(iters: int, warm_up_iters: int, function, *args, **kwargs) -> f
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
     start_event.record()
+    torch.cuda.reset_peak_memory_stats()
     for _ in range(iters):
         results.extend(function(*args, **kwargs))
+    max_memory = torch.cuda.max_memory_allocated(0)/2**20
     end_event.record()
     torch.cuda.synchronize()
-    max_memory = torch.cuda.max_memory_allocated()/2**20
     # in ms
     return (start_event.elapsed_time(end_event)) / iters, max_memory, results
 
@@ -155,6 +156,7 @@ def main(opt):
         checkpoint_path=opt.ckpt,
         device="cuda",
         sampler=opt.sampler,
+        steps=30,
     )
 
     for i in [1, 2, 4]:

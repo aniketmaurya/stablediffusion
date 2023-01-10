@@ -41,7 +41,7 @@ def benchmark_fn(iters: int, warm_up_iters: int, function, *args, **kwargs) -> f
         results.append(function(*args, **kwargs))
     end_event.record()
     torch.cuda.synchronize()
-    max_memory = torch.cuda.max_memory_allocated()/2**20
+    max_memory = torch.cuda.max_memory_allocated(0)/2**20
     print(f"Max Memory {max_memory} MB")
     # in ms
     return (start_event.elapsed_time(end_event)) / iters, results
@@ -94,7 +94,7 @@ opt = parser.parse_args()
 os.makedirs(opt.outdir, exist_ok=True)
 seed_everything(opt.seed)
 
-t, results = benchmark_fn(1, 3, pipe, prompt=[opt.prompt])
+t, results = benchmark_fn(10, 5, pipe, prompt=[opt.prompt] * 4)
 print(t)
 
 grid_count = len(os.listdir(opt.outdir)) - 1

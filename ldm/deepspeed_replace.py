@@ -195,7 +195,8 @@ class VAEPolicy(DSPolicy):
         return isinstance(module,  AutoencoderKL)
 
     def apply(self, module, enable_cuda_graph=True):
-        return ReplayCudaGraphVAE(module, enable_cuda_graph=enable_cuda_graph)
+        return module
+        # return ReplayCudaGraphVAE(module, enable_cuda_graph=enable_cuda_graph)
 
 
 class ClipEncoderPolicy(DSPolicy):
@@ -204,7 +205,8 @@ class ClipEncoderPolicy(DSPolicy):
         return isinstance(module, FrozenCLIPEmbedder)
 
     def apply(self, module, enable_cuda_graph=True):
-        return ReplayCudaGraphClipEncoder(module, enable_cuda_graph=enable_cuda_graph)
+        return module
+        # return ReplayCudaGraphClipEncoder(module, enable_cuda_graph=enable_cuda_graph)
 
 
 GENERIC_POLICIES = [UNetPolicy, VAEPolicy, ClipEncoderPolicy]
