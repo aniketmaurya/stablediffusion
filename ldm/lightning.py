@@ -50,9 +50,10 @@ class LightningStableDiffusion(L.LightningModule):
         device: torch.device,
         size: int = 512,
         fp16: bool = True,
-        sampler: str = "dpm",
+        sampler: str = "ddim",
         steps: Optional[int] = None,
         use_deepspeed: bool = True,
+        enable_cuda_graph: bool = True,
     ):
         super().__init__()
 
@@ -68,7 +69,7 @@ class LightningStableDiffusion(L.LightningModule):
         self.to(dtype=torch.float16)
 
         if use_deepspeed:
-            deepspeed_injection(self.model, fp16=fp16)
+            deepspeed_injection(self.model, fp16=fp16, enable_cuda_graph=enable_cuda_graph)
 
         # Replace with 
         self.sampler = _SAMPLERS[sampler](self.model)
@@ -77,11 +78,12 @@ class LightningStableDiffusion(L.LightningModule):
         self.steps = steps or _STEPS[sampler]
 
         self.to(device, dtype=torch.float16 if fp16 else torch.float32)
+        self.fp16 = fp16
 
-    def predict_step(self, prompts: List[str], batch_idx: int, precision=16):
+    def predict_step(self, prompts: List[str], batch_idx: int):
         batch_size = len(prompts)
 
-        precision_scope = autocast if precision == 16 else nullcontext
+        precision_scope = autocast if self.fp16 else nullcontext
         inference = torch.inference_mode if torch.cuda.is_available() else torch.no_grad
         with inference():
             with precision_scope("cuda"):
