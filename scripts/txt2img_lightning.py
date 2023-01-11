@@ -157,11 +157,12 @@ def main(opt):
         device="cuda",
         sampler=opt.sampler,
         steps=30,
+        enable_cuda_graph=True,
     )
 
-    for i in [1, 2, 4]:
-        t, max_memory, images = benchmark_fn(10, 5, model.predict_step, prompts=[opt.prompt] * i, batch_idx=0)
-        print(f"Average time {t} secs on batch size {i}.")
+    for batch_size in [1, 2, 4]:
+        t, max_memory, images = benchmark_fn(10, 5, model.predict_step, prompts=[opt.prompt] * batch_size, batch_idx=0)
+        print(f"Average time {t} secs on batch size {batch_size}.")
         print(f"Max GPU Memory cost is {max_memory} MB.")
 
     grid_count = len(os.listdir(opt.outdir)) - 1

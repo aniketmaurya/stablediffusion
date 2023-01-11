@@ -150,8 +150,6 @@ def main():
         config_path=opt.config,
         checkpoint_path=opt.ckpt,
         device="cuda" if torch.cuda.is_available() else "cpu",
-        enable_cuda_graph=False,
-        steps=30,
     )
     init_image: str = load_img(opt.init_img)
 

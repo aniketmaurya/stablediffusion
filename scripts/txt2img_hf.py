@@ -5,6 +5,11 @@ import deepspeed
 import argparse
 from pytorch_lightning import seed_everything
 from diffusers.schedulers import DDIMScheduler
+from ldm.deepspeed_replace import InferenceEngine
+
+# Patch DeepSpeed Inference Engine to enable partial cuda graph for HF pipeline
+# TODO: Upstream to DeepSpeed.
+deepspeed.InferenceEngine = InferenceEngine
 
 def benchmark_fn(iters: int, warm_up_iters: int, function, *args, **kwargs) -> float:
     """
@@ -58,7 +63,7 @@ pipe = diffusers.StableDiffusionPipeline.from_pretrained(
     revision="fp16")
 
 print(pipe)
-pipe = deepspeed.init_inference(pipe.to("cuda"), dtype=torch.float16, enable_cuda_graph=False)
+pipe = deepspeed.init_inference(pipe.to("cuda"), dtype=torch.float16, enable_cuda_graph=True)
 pipe.scheduler = DDIMScheduler()
 
 parser = argparse.ArgumentParser()
@@ -94,8 +99,9 @@ opt = parser.parse_args()
 os.makedirs(opt.outdir, exist_ok=True)
 seed_everything(opt.seed)
 
-t, results = benchmark_fn(10, 5, pipe, prompt=[opt.prompt] * 4, num_inference_steps=30)
-print(t)
+for batch_size in [1, 2, 4]:
+    t, results = benchmark_fn(10, 5, pipe, prompt=[opt.prompt] * batch_size, num_inference_steps=30)
+    print(f"Average time {t} secs on batch size {batch_size}.")
 
 grid_count = len(os.listdir(opt.outdir)) - 1
 
