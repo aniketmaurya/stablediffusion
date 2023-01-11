@@ -58,7 +58,7 @@ pipe = diffusers.StableDiffusionPipeline.from_pretrained(
     revision="fp16")
 
 print(pipe)
-pipe = deepspeed.init_inference(pipe.to("cuda"), dtype=torch.float16)
+pipe = deepspeed.init_inference(pipe.to("cuda"), dtype=torch.float16, enable_cuda_graph=False)
 pipe.scheduler = DDIMScheduler()
 
 parser = argparse.ArgumentParser()
@@ -94,7 +94,7 @@ opt = parser.parse_args()
 os.makedirs(opt.outdir, exist_ok=True)
 seed_everything(opt.seed)
 
-t, results = benchmark_fn(10, 5, pipe, prompt=[opt.prompt] * 4)
+t, results = benchmark_fn(10, 5, pipe, prompt=[opt.prompt] * 4, num_inference_steps=30)
 print(t)
 
 grid_count = len(os.listdir(opt.outdir)) - 1
