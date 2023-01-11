@@ -157,7 +157,6 @@ def main(opt):
         device="cuda",
         sampler=opt.sampler,
         steps=30,
-        enable_cuda_graph=True,
     )
 
     for batch_size in [1, 2, 4]:
