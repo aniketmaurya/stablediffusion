@@ -85,7 +85,7 @@ class CudaGraphInferenceModule(torch.nn.Module):
 
     inference_methods = ["forward"]
 
-    def __init__(self, module, enable_cuda_graph = True, batch_sizes=[1, 2]):
+    def __init__(self, module, enable_cuda_graph = True, batch_sizes=[1]):
         super().__init__()
         self.module = module
         self.module.requires_grad_(requires_grad=False)
