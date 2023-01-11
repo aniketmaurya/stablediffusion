@@ -53,7 +53,7 @@ class LightningStableDiffusion(L.LightningModule):
         sampler: str = "ddim",
         steps: Optional[int] = None,
         use_deepspeed: bool = True,
-        enable_cuda_graph: bool = True,
+        enable_cuda_graph: bool = False,
     ):
         super().__init__()
 
