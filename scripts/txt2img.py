@@ -270,6 +270,7 @@ def main(opt):
             grid_count += 1
     
     end_event.record()
+    torch.cuda.synchronize()
 
     max_memory = torch.cuda.max_memory_allocated()/2**20
     print(f"Max Memory {max_memory} MB")
