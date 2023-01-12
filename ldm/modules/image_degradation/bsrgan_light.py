@@ -10,7 +10,6 @@ import scipy
 import scipy.stats as ss
 from scipy.interpolate import interp2d
 from scipy.linalg import orth
-import albumentations
 
 import ldm.modules.image_degradation.utils_image as util
 
@@ -625,6 +624,8 @@ def degradation_bsrgan_variant(image, sf=4, isp_model=None, up=False):
 
 
 if __name__ == '__main__':
+    import albumentations
+    
     print("hey")
     img = util.imread_uint('utils/test.png', 3)
     img = img[:448, :448]
