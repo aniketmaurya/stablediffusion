@@ -163,7 +163,10 @@ def main(opt):
     )
 
     for batch_size in [1, 2, 4]:
-        t, max_memory, images = benchmark_fn(10, 5, model.predict_step, prompts=[opt.prompt] * batch_size, batch_idx=0)
+        if batch_size == 1:
+            t, max_memory, images = benchmark_fn(10, 5, model.predict_step, prompts=opt.prompt, batch_idx=0)
+        else:
+            t, max_memory, images = benchmark_fn(10, 5, model.predict_step, prompts=[opt.prompt] * batch_size, batch_idx=0)
         print(f"Average time {t} secs on batch size {batch_size}.")
         print(f"Max GPU Memory cost is {max_memory} MB.")
 
