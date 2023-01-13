@@ -161,7 +161,7 @@ def main(opt):
     os.makedirs(opt.outdir, exist_ok=True)
     seed_everything(opt.seed)
 
-    device = "cpu"
+    device = "cuda" if torch.cuda.is_available() else "mps"
 
     model = LightningStableDiffusion(
         config_path=opt.config,
