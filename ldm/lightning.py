@@ -16,6 +16,9 @@ from io import BytesIO
 from contextlib import nullcontext
 from torch import autocast
 from ldm.deepspeed_replace import deepspeed_injection, ReplayCudaGraphUnet
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class PromptDataset(Dataset):
@@ -47,28 +50,30 @@ class LightningStableDiffusion(L.LightningModule):
         self,
         config_path: str,
         checkpoint_path: str,
-        device: torch.device,
+        device: str,
         size: int = 512,
         fp16: bool = True,
         sampler: str = "ddim",
         steps: Optional[int] = None,
-        use_deepspeed: bool = True,
+        use_deepspeed: bool = False,
         enable_cuda_graph: bool = False,
+        use_inference_context: bool = False,
     ):
         super().__init__()
+
+        if device in ("mps", "cpu") and fp16:
+            logger.warn(f"You provided fp16=True but it isn't supported on `{device}`. Skipping...")
+            fp16 = False
 
         config = OmegaConf.load(f"{config_path}")
         config.model.params.unet_config["params"]["use_fp16"] = False
         config.model.params.cond_stage_config["params"] = {"device": device}
-
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
         state_dict = checkpoint["state_dict"]
         self.model = instantiate_from_config(config.model)
         self.model.load_state_dict(state_dict, strict=False)
 
-        self.to(dtype=torch.float16)
-
-        if use_deepspeed:
+        if use_deepspeed or enable_cuda_graph:
             deepspeed_injection(self.model, fp16=fp16, enable_cuda_graph=enable_cuda_graph)
 
         # Replace with 
@@ -79,12 +84,16 @@ class LightningStableDiffusion(L.LightningModule):
 
         self.to(device, dtype=torch.float16 if fp16 else torch.float32)
         self.fp16 = fp16
+        self.use_inference_context = use_inference_context
 
-    def predict_step(self, prompts: List[str], batch_idx: int):
+    def predict_step(self, prompts: Union[List[str], str], batch_idx: int = 0):
+        if isinstance(prompts, str):
+            prompts = [prompts]
         batch_size = len(prompts)
 
         precision_scope = autocast if self.fp16 else nullcontext
         inference = torch.inference_mode if torch.cuda.is_available() else torch.no_grad
+        inference = inference if self.use_inference_context else nullcontext
         with inference():
             with precision_scope("cuda"):
                 with self.model.ema_scope():

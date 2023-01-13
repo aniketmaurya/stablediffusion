@@ -9,5 +9,5 @@ einops==0.3.0
 transformers>4.19.2
 open-clip-torch==2.7.0
 lightning
-triton>=2.0.0.dev20221005
-deepspeed>=0.7.5
+triton>=2.0.0.dev20221005; platform_system == "Linux"
+deepspeed>=0.7.5; platform_system == "Linux"
