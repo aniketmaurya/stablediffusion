@@ -50,7 +50,7 @@ class LightningStableDiffusion(L.LightningModule):
         self,
         config_path: str,
         checkpoint_path: str,
-        device: torch.device,
+        device: str,
         size: int = 512,
         fp16: bool = True,
         sampler: str = "ddim",
