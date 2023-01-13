@@ -61,8 +61,8 @@ class LightningStableDiffusion(L.LightningModule):
     ):
         super().__init__()
 
-        if device == "mps" and fp16:
-            logger.warn("You provided fp16=True but it isn't supported on `mps`. Skipping...")
+        if device in ("mps", "cpu") and fp16:
+            logger.warn(f"You provided fp16=True but it isn't supported on `{device}`. Skipping...")
             fp16 = False
 
         config = OmegaConf.load(f"{config_path}")
