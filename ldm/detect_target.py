@@ -12,7 +12,7 @@ def _detect_cuda():
         )
         stdout, _ = proc.communicate()
         stdout = stdout.decode("utf-8")
-        if "A100" in stdout or "RTX 30" in stdout or "A30" in stdout:
+        if "A100" in stdout or "RTX 30" in stdout or "A30" in stdout or "A10" in stdout:
             return "80"
         if "V100" in stdout:
             return "70"
