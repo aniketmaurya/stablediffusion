@@ -16,6 +16,11 @@ from io import BytesIO
 from contextlib import nullcontext
 from torch import autocast
 from ldm.deepspeed_replace import deepspeed_injection, ReplayCudaGraphUnet
+from lightning_utilities.core.imports import package_available
+from ldm.detect_target import _detect_cuda
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class PromptDataset(Dataset):
@@ -52,8 +57,9 @@ class LightningStableDiffusion(L.LightningModule):
         fp16: bool = True,
         sampler: str = "ddim",
         steps: Optional[int] = None,
-        use_deepspeed: bool = True,
+        use_deepspeed: bool = False,
         enable_cuda_graph: bool = False,
+        use_inference_context: bool = False,
     ):
         super().__init__()
 
@@ -69,7 +75,12 @@ class LightningStableDiffusion(L.LightningModule):
         self.to(dtype=torch.float16)
 
         if use_deepspeed:
-            deepspeed_injection(self.model, fp16=fp16, enable_cuda_graph=enable_cuda_graph)
+            if not package_available("deepspeed"):
+                logger.warn("You provided use_deepspeed=True but Deepspeed isn't installed. Skipping...")
+            elif torch.cuda.is_available() and _detect_cuda() not in ["80"]:
+                logger.warn("You provided use_deepspeed=True but Deepspeed isn't supported on your architecture. Skipping...")
+            else:
+                deepspeed_injection(self.model, fp16=fp16, enable_cuda_graph=enable_cuda_graph)
 
         # Replace with 
         self.sampler = _SAMPLERS[sampler](self.model)
@@ -79,12 +90,16 @@ class LightningStableDiffusion(L.LightningModule):
 
         self.to(device, dtype=torch.float16 if fp16 else torch.float32)
         self.fp16 = fp16
+        self.use_inference_context = use_inference_context
 
-    def predict_step(self, prompts: List[str], batch_idx: int):
+    def predict_step(self, prompts: Union[List[str], str], batch_idx: int = 0):
+        if isinstance(prompts, str):
+            prompts = [prompts]
         batch_size = len(prompts)
 
         precision_scope = autocast if self.fp16 else nullcontext
         inference = torch.inference_mode if torch.cuda.is_available() else torch.no_grad
+        inference = inference if self.use_inference_context else nullcontext
         with inference():
             with precision_scope("cuda"):
                 with self.model.ema_scope():

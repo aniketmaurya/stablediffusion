@@ -155,7 +155,10 @@ def main(opt):
         config_path=opt.config,
         checkpoint_path=opt.ckpt,
         device="cuda",
-        sampler=opt.sampler,
+        fp16=True,
+        use_deepspeed=True,
+        enable_cuda_graph=True,
+        use_inference_context=False,
         steps=30,
     )
 

@@ -6,17 +6,26 @@ import torch
 from functools import partial
 from dataclasses import dataclass
 import time
-import deepspeed.ops.transformer as transformer_inference
-from deepspeed.ops.transformer.inference.diffusers_attention import DeepSpeedDiffusersAttention
-from deepspeed.ops.transformer.inference.diffusers_transformer_block import DeepSpeedDiffusersTransformerBlock
-from deepspeed.ops.transformer.inference.diffusers_2d_transformer import Diffusers2DTransformerConfig
+from lightning_utilities.core.imports import package_available
+
 from ldm.modules.attention import CrossAttention, BasicTransformerBlock
-from deepspeed.module_inject.replace_policy import UNetPolicy, DSPolicy
 from ldm.models.diffusion.ddpm import DiffusionWrapper
 from ldm.models.autoencoder import AutoencoderKL
 from ldm.modules.encoders.modules import FrozenCLIPEmbedder
-from deepspeed.inference.engine import InferenceEngine
 
+if package_available("deepspeed"):
+    import deepspeed.ops.transformer as transformer_inference
+    from deepspeed.ops.transformer.inference.diffusers_attention import DeepSpeedDiffusersAttention
+    from deepspeed.ops.transformer.inference.diffusers_transformer_block import DeepSpeedDiffusersTransformerBlock
+    from deepspeed.ops.transformer.inference.diffusers_2d_transformer import Diffusers2DTransformerConfig
+    from deepspeed.inference.engine import InferenceEngine
+    from deepspeed.module_inject.replace_policy import UNetPolicy, DSPolicy
+else:
+    class InferenceEngine:
+        pass
+
+    class DSPolicy:
+        pass
 
 class InferenceEngine(InferenceEngine):
 
