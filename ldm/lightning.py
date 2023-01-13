@@ -52,7 +52,7 @@ class LightningStableDiffusion(L.LightningModule):
         self,
         config_path: str,
         checkpoint_path: str,
-        device: torch.device,
+        device: str,
         size: int = 512,
         fp16: bool = True,
         sampler: str = "ddim",
@@ -77,8 +77,8 @@ class LightningStableDiffusion(L.LightningModule):
         if use_deepspeed:
             if not package_available("deepspeed"):
                 logger.warn("You provided use_deepspeed=True but Deepspeed isn't installed. Skipping...")
-            elif torch.cuda.is_available() and _detect_cuda() not in ["80"]:
-                logger.warn("You provided use_deepspeed=True but Deepspeed isn't supported on your architecture. Skipping...")
+            elif _detect_cuda() not in ["80"]:
+                logger.warn("You provided `use_deepspeed=True` but Deepspeed isn't supported on your architecture. Skipping...")
             else:
                 deepspeed_injection(self.model, fp16=fp16, enable_cuda_graph=enable_cuda_graph)
 
