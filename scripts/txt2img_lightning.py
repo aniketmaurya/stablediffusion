@@ -1,6 +1,7 @@
 import argparse
 import os
 import time
+import torch
 from pytorch_lightning import seed_everything
 from ldm.lightning import LightningStableDiffusion
 
@@ -160,13 +161,13 @@ def main(opt):
     os.makedirs(opt.outdir, exist_ok=True)
     seed_everything(opt.seed)
 
-    device = "mps"
+    device = "cuda" if torch.cuda.is_available() else "mps"
 
     model = LightningStableDiffusion(
         config_path=opt.config,
         checkpoint_path=opt.ckpt,
         device=device,
-        fp16=True,
+        fp16=True, # Supported on GPU and CPU only, skipped otherwise.
         use_deepspeed=True, # Supported on Ampere and RTX, skipped otherwise.
         enable_cuda_graph=True, # Currently enabled only for batch size 1.
         use_inference_context=False,
