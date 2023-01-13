@@ -156,7 +156,7 @@ def main(opt):
         checkpoint_path=opt.ckpt,
         device="cuda",
         fp16=True,
-        use_deepspeed=True,
+        use_deepspeed=True, # Supported on Ampere and RTX, skipped otherwise.
         enable_cuda_graph=True, # Currently enabled only for batch size 1.
         use_inference_context=False,
         steps=30,
