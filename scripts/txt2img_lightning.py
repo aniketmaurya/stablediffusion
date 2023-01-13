@@ -1,9 +1,10 @@
 import argparse
 import os
+import time
 from pytorch_lightning import seed_everything
 from ldm.lightning import LightningStableDiffusion
 
-def benchmark_fn(iters: int, warm_up_iters: int, function, *args, **kwargs) -> float:
+def benchmark_fn(device, iters: int, warm_up_iters: int, function, *args, **kwargs) -> float:
     """
     Function for benchmarking a pytorch function.
 
@@ -29,21 +30,29 @@ def benchmark_fn(iters: int, warm_up_iters: int, function, *args, **kwargs) -> f
         function(*args, **kwargs)
 
     # Start benchmark.
-    torch.cuda.synchronize()
-    torch.cuda.empty_cache()
-    torch.cuda.reset_accumulated_memory_stats()
-    torch.cuda.reset_peak_memory_stats()
-    start_event = torch.cuda.Event(enable_timing=True)
-    end_event = torch.cuda.Event(enable_timing=True)
-    start_event.record()
-    torch.cuda.reset_peak_memory_stats()
+    if device == "cuda":
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        torch.cuda.reset_accumulated_memory_stats()
+        torch.cuda.reset_peak_memory_stats()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        start_event.record()
+        torch.cuda.reset_peak_memory_stats()
+    else:
+        t0 = time.time()
+
     for _ in range(iters):
         results.extend(function(*args, **kwargs))
-    max_memory = torch.cuda.max_memory_allocated(0)/2**20
-    end_event.record()
-    torch.cuda.synchronize()
-    # in ms
-    return (start_event.elapsed_time(end_event)) / iters, max_memory, results
+
+    if device == "cuda":
+        max_memory = torch.cuda.max_memory_allocated(0)/2**20
+        end_event.record()
+        torch.cuda.synchronize()
+        # in ms
+        return (start_event.elapsed_time(end_event)) / iters, max_memory, results
+    else:
+        return (time.time() - t0) / iters, None, results
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -151,19 +160,23 @@ def main(opt):
     os.makedirs(opt.outdir, exist_ok=True)
     seed_everything(opt.seed)
 
+    device = "mps"
+
     model = LightningStableDiffusion(
         config_path=opt.config,
         checkpoint_path=opt.ckpt,
-        device="cuda",
+        device=device,
         fp16=True,
-        use_deepspeed=True,
+        use_deepspeed=False,
         enable_cuda_graph=True,
-        use_inference_context=False,
         steps=30,
     )
 
     for batch_size in [1, 2, 4]:
-        t, max_memory, images = benchmark_fn(10, 5, model.predict_step, prompts=[opt.prompt] * batch_size, batch_idx=0)
+        if batch_size == 1:
+            t, max_memory, images = benchmark_fn(device, 10, 5, model.predict_step, prompts=opt.prompt, batch_idx=0)
+        else:
+            t, max_memory, images = benchmark_fn(device, 10, 5, model.predict_step, prompts=[opt.prompt] * batch_size, batch_idx=0)
         print(f"Average time {t} secs on batch size {batch_size}.")
         print(f"Max GPU Memory cost is {max_memory} MB.")
 

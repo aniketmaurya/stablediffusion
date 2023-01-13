@@ -16,8 +16,6 @@ from io import BytesIO
 from contextlib import nullcontext
 from torch import autocast
 from ldm.deepspeed_replace import deepspeed_injection, ReplayCudaGraphUnet
-from lightning_utilities.core.imports import package_available
-from ldm.detect_target import _detect_cuda
 import logging
 
 logger = logging.getLogger(__name__)
@@ -63,24 +61,20 @@ class LightningStableDiffusion(L.LightningModule):
     ):
         super().__init__()
 
+        if device == "mps" and fp16:
+            logger.warn("You provided fp16=True but it isn't supported on `mps`. Skipping...")
+            fp16 = False
+
         config = OmegaConf.load(f"{config_path}")
         config.model.params.unet_config["params"]["use_fp16"] = False
         config.model.params.cond_stage_config["params"] = {"device": device}
-
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
         state_dict = checkpoint["state_dict"]
         self.model = instantiate_from_config(config.model)
         self.model.load_state_dict(state_dict, strict=False)
 
-        self.to(dtype=torch.float16)
-
-        if use_deepspeed:
-            if not package_available("deepspeed"):
-                logger.warn("You provided use_deepspeed=True but Deepspeed isn't installed. Skipping...")
-            elif torch.cuda.is_available() and _detect_cuda() not in ["80"]:
-                logger.warn("You provided use_deepspeed=True but Deepspeed isn't supported on your architecture. Skipping...")
-            else:
-                deepspeed_injection(self.model, fp16=fp16, enable_cuda_graph=enable_cuda_graph)
+        if use_deepspeed or enable_cuda_graph:
+            deepspeed_injection(self.model, fp16=fp16, enable_cuda_graph=enable_cuda_graph)
 
         # Replace with 
         self.sampler = _SAMPLERS[sampler](self.model)
