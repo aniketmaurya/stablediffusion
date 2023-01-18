@@ -152,6 +152,11 @@ def parse_args():
         default=42,
         help="the seed (for reproducible sampling)",
     )
+    parser.add_argument(
+        "--use_triton_attention",
+        action='store_true',
+        help="whether to use triton attention",
+    )
     opt = parser.parse_args()
     return opt
 
@@ -170,7 +175,8 @@ def main(opt):
         fp16=True, # Supported on GPU and CPU only, skipped otherwise.
         use_deepspeed=True, # Supported on Ampere and RTX, skipped otherwise.
         enable_cuda_graph=True, # Currently enabled only for batch size 1.
-        use_inference_context=False,
+        use_inference_context=True,
+        use_triton_attention=opt.use_triton_attention,
         steps=30,
     )
 
