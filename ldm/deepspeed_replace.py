@@ -422,7 +422,7 @@ def deepspeed_injection(
         nonlocal add_warning
 
         policy_attn = policy.attention(child, use_triton_attention=use_triton_attention)
-        if policy_attn is None:
+        if policy_attn is None or use_triton_attention is None:
             return child
 
         if len(policy_attn) == 5:
