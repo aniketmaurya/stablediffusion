@@ -177,7 +177,7 @@ class LightningStableDiffusion(L.LightningModule):
 
                 # Detect if there were an exit without new prompts.
                 if 'previous_hashes' in inputs["global_state"]:
-                    changed_hash = inputs["global_state"]['previous_hashes'] != inputs["global_state"]['hashes']
+                    changed_hash = inputs["global_state"]['previous_hashes'] == inputs["global_state"]['hashes']
                 else:
                     changed_hash = False
 
