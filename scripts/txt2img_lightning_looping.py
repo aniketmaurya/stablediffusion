@@ -4,6 +4,7 @@ import time
 import torch
 from pytorch_lightning import seed_everything
 from ldm.lightning import LightningStableDiffusion
+import uuid
 
 def benchmark_fn(device, iters: int, warm_up_iters: int, function, *args, **kwargs) -> float:
     """
@@ -54,6 +55,27 @@ def benchmark_fn(device, iters: int, warm_up_iters: int, function, *args, **kwar
         return (start_event.elapsed_time(end_event)) / iters, max_memory, results
     else:
         return (time.time() - t0) / iters, None, results
+
+def inference_step(model, prompt, batch_size, steps):
+    data = {0: {uuid.uuid4().hex: prompt for _ in range(batch_size)}}
+    num_samples = len([k for v in data.values() for k in v])
+    
+    idx = 0
+    inputs = {}
+    results = {}
+    while True:
+        for timestamp in data:
+            if timestamp <= idx:
+                for k, v in data[timestamp].items():
+                    if k not in results and k not in inputs:
+                        inputs[k] = v
+        results.update(model.in_loop_predict_step(inputs, steps))
+        idx += 1
+
+        if len(results) == num_samples:
+            break
+
+    return results.values()
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -157,9 +179,13 @@ def parse_args():
         action='store_true',
         help="whether to use triton attention",
     )
+    parser.add_argument(
+        "--benchmark",
+        action='store_true',
+        help="whether to use triton attention",
+    )
     opt = parser.parse_args()
     return opt
-
 
 def main(opt):
     opt = parse_args()
@@ -182,13 +208,38 @@ def main(opt):
         steps=steps,
     )
 
-    for batch_size in [1, 2, 4]:
-        if batch_size == 1:
-            t, max_memory, images = benchmark_fn(device, 10, 5, model.predict_step, prompts=opt.prompt, batch_idx=0)
-        else:
-            t, max_memory, images = benchmark_fn(device, 10, 5, model.predict_step, prompts=[opt.prompt] * batch_size, batch_idx=0)
-        print(f"Average time {t} secs on batch size {batch_size}.")
-        print(f"Max GPU Memory cost is {max_memory} MB.")
+    if opt.benchmark:
+        for batch_size in [1, 2, 4]:
+            t, max_memory, images = benchmark_fn(device, 10, 5, inference_step, model=model, prompt=opt.prompt, batch_size=batch_size, steps=steps)
+            print(f"Average time {t} secs on batch size {batch_size}.")
+            print(f"Max GPU Memory cost is {max_memory} MB.")
+
+    else:
+
+        data = {
+            0: {"a": opt.prompt, "b": opt.prompt},
+            15: {"c": opt.prompt, "d": opt.prompt},
+            30: {'e': opt.prompt, "f": opt.prompt},
+        }
+        num_samples = len([k for v in data.values() for k in v])
+        
+        idx = 0
+        inputs = {}
+        results = {}
+        while True:
+            for timestamp in data:
+                if timestamp <= idx:
+                    for k, v in data[timestamp].items():
+                        if k not in results and k not in inputs:
+                            inputs[k] = v
+            results.update(model.in_loop_predict_step(inputs, steps))
+            idx += 1
+            print(idx, list(results))
+
+            if len(results) == num_samples:
+                break
+
+        images = results.values()
 
     grid_count = len(os.listdir(opt.outdir)) - 1
 
