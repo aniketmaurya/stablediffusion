@@ -251,7 +251,7 @@ class LightningStableDiffusion(L.LightningModule):
                 # Increment the step
                 inputs["global_state"]['steps'] += 1
 
-                print(inputs["global_state"]['steps'])
+                # print(inputs["global_state"]['steps'])
 
                 # Detect if any tensor needs to be extracted.
                 matches = inputs["global_state"]['steps'] == total_steps
