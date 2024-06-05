@@ -97,7 +97,7 @@ class DDIMSampler(object):
         # sampling
         C, H, W = shape
         size = (batch_size, C, H, W)
-        print(f'Data shape for DDIM sampling is {size}, eta {eta}')
+        print(f'Data shape for DDIM sampling is {size}, eta {eta}, steps {S}')
 
         samples, intermediates = self.ddim_sampling(conditioning, size,
                                                     callback=callback,
@@ -142,11 +142,8 @@ class DDIMSampler(object):
         intermediates = {'x_inter': [img], 'pred_x0': [img]}
         time_range = reversed(range(0,timesteps)) if ddim_use_original_steps else np.flip(timesteps)
         total_steps = timesteps if ddim_use_original_steps else timesteps.shape[0]
-        print(f"Running DDIM Sampling with {total_steps} timesteps")
 
-        iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps)
-
-        for i, step in enumerate(iterator):
+        for i, step in enumerate(time_range):
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
 
@@ -224,10 +221,17 @@ class DDIMSampler(object):
         sqrt_one_minus_alphas = self.model.sqrt_one_minus_alphas_cumprod if use_original_steps else self.ddim_sqrt_one_minus_alphas
         sigmas = self.model.ddim_sigmas_for_original_num_steps if use_original_steps else self.ddim_sigmas
         # select parameters corresponding to the currently considered timestep
-        a_t = torch.full((b, 1, 1, 1), alphas[index], device=device)
-        a_prev = torch.full((b, 1, 1, 1), alphas_prev[index], device=device)
-        sigma_t = torch.full((b, 1, 1, 1), sigmas[index], device=device)
-        sqrt_one_minus_at = torch.full((b, 1, 1, 1), sqrt_one_minus_alphas[index],device=device)
+        if isinstance(index, torch.Tensor):
+            a_t = alphas[index].reshape((b, 1, 1, 1)).to(device)
+            a_prev = alphas_prev[index].reshape((b, 1, 1, 1))
+            a_prev = torch.from_numpy(a_prev).to(device)
+            sigma_t = sigmas[index].reshape((b, 1, 1, 1)).to(device)
+            sqrt_one_minus_at = sqrt_one_minus_alphas[index].reshape((b, 1, 1, 1)).to(device)
+        else:
+            a_t = torch.full((b, 1, 1, 1), alphas[index], device=device)
+            a_prev = torch.full((b, 1, 1, 1), alphas_prev[index], device=device)
+            sigma_t = torch.full((b, 1, 1, 1), sigmas[index], device=device)
+            sqrt_one_minus_at = torch.full((b, 1, 1, 1), sqrt_one_minus_alphas[index],device=device)
 
         # current prediction for x_0
         if self.model.parameterization != "v":
